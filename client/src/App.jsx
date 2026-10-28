@@ -16,7 +16,7 @@ import {
 } from "react-router-dom";
 import { api, getPostLikes, votePost, removePostVote } from "./api.jsx";
 
-const API_ORIGIN = "http://localhost:5001";
+const API_ORIGIN = "https://simple-blog-rp.onrender.com";
 
 function imageUrl(image) {
   if (!image) return "";
@@ -2457,7 +2457,7 @@ function CreatePost() {
       }
 
       const response = await fetch(
-        "http://localhost:5001/api/posts",
+        `${API_ORIGIN}/api/posts`,
         {
           method: "POST",
           credentials: "include",
