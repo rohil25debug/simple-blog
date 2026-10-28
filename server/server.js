@@ -12,7 +12,7 @@ import connectPgSimple from "connect-pg-simple";
 import path from "node:path";
 
 import pool from "./db/db.js";
-import authRoutes from "./routes/auth.js";
+import authRoutes from "./routes/Auth.js";
 import postRoutes from "./routes/posts.js";
 
 // =========================
