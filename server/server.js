@@ -21,12 +21,12 @@ import postRoutes from "./routes/posts.js";
 const app = express();
 const PgSession = connectPgSimple(session);
 
-app.disable("x-powered-by");
+app.disable("x-powered-by"); // http response by express [(x-powered-by) control the header].
 
 // =========================
 // SECURITY
 // =========================
-app.use(helmet());app.use(
+app.use(
   helmet({
     crossOriginResourcePolicy: {
       policy: "cross-origin",

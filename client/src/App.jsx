@@ -1,5 +1,10 @@
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import React, { useCallback, useEffect, useState } from "react";
 import {
   Link,
   Navigate,
@@ -25,78 +30,102 @@ function imageUrl(image) {
 // NAVBAR
 // =========================
 
-function Navbar({ user, onLogout, onOpenAuth }) {
+
+
+
+function Navbar({ user, onOpenAuth, onOpenProfile }) {
   return (
-    <header className="navbar">
-      <Link className="brand" to="/">
-        <span className="brand-icon">𝚂.</span>
-         𝚂𝙾𝙲𝙸𝙰𝙻 𝙱𝙻𝙾𝙶
-      </Link>
+    <header className="site-navbar">
+      <div className="navbar-inner">
+        {/* Blog Brand */}
+        <Link to="/" className="navbar-brand">
+          <span className="navbar-brand-icon">𝚂.</span>
+          <span className="navbar-brand-text">
+            <strong>𝚂. 𝚂𝙾𝙲𝙸𝙰𝙻</strong>
+            <small>STORIES WORTH SHARING</small>
+          </span>
+        </Link>
 
-      <nav>
-        <Link to="/">Posts</Link>
+        {/* Main Navigation */}
+        <nav className="navbar-links" aria-label="Main navigation">
+           
+          {user && (
+            <>
+            <Link to="/#discover-stories" className="navbar-link">
+            Discover
+          </Link>
+              <Link to="/my-posts" className="navbar-link">
+                My Posts
+              </Link>
 
-        {user?.role === "user" && (
-          <>
-            <Link to="/my-posts">My Posts</Link>
-            <Link to="/create-post">Create Post</Link>
-          </>
-        )}
+              <Link to="/create-post" className="navbar-create-link">
+                <span></span> Create post
+              </Link>
 
-        {user?.role === "admin" && (
-          <Link to="/admin">Dashboard</Link>
-        )}
+              {user.role === "admin" && (
+                <Link to="/admin" className="navbar-link">
+                  Dashboard
+                </Link>
+              )}
+            </>
+          )}
+        </nav>
 
-        {user ? (
-          <div className="navbar-user">
-            <div className="navbar-profile">
+        {/* Right Side */}
+        <div className="navbar-actions">
+          {user ? (
+            <button
+              type="button"
+              className="navbar-profile-button"
+              onClick={onOpenProfile}
+              aria-label="Open your profile"
+              title="My Profile"
+            >
               {user.picture ? (
                 <img
+                  className="navbar-avatar-image"
                   src={user.picture}
-                  alt={`${user.name}'s profile`}
-                  className="navbar-avatar"
+                  alt=""
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <span className="navbar-avatar-fallback">
-                  {user.name?.charAt(0)?.toUpperCase() || "U"}
+                <span className="navbar-avatar-initial">
+                  {user.name?.trim()?.charAt(0)?.toUpperCase() || "U"}
                 </span>
               )}
 
-              <span className="user-label">{user.name}</span>
-            </div>
+              <span className="navbar-profile-name">
+                {user.name?.split(" ")[0] || "Profile"}
+              </span>
 
-            <button
-              type="button"
-              className="button button-small"
-              onClick={onLogout}
-            >
-              Log out
+              <span className="navbar-profile-chevron">⌄</span>
             </button>
-          </div>
-        ) : (
-          <div className="navbar-auth">
-            <button
-              type="button"
-              className="nav-login"
-              onClick={() => onOpenAuth("login")}
-            >
-              Login
-            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="navbar-login-button"
+                onClick={() => onOpenAuth("login")}
+              >
+                Log in
+              </button>
 
-            <button
-              type="button"
-              className="button button-small"
-              onClick={() => onOpenAuth("register")}
-            >
-              Sign up
-            </button>
-          </div>
-        )}
-      </nav>
+              <button
+                type="button"
+                className="navbar-signup-button"
+                onClick={() => onOpenAuth("register")}
+              >
+                Get Started <span>↗</span>
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </header>
   );
 }
+
+
 
 // =========================
 // LOGIN
@@ -645,122 +674,880 @@ function LoginRequiredPost({ onOpenAuth }) {
   }, [onOpenAuth, navigate]);
 
   return null;
-}
-function Home() {
+} 
+
+function Home({ user, onOpenAuth }) {
   const [posts, setPosts] = useState([]);
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
-  const loadPosts = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const [page, setPage] = useState(1);
+  const observerRef = useRef(null);
+  const requestInProgressRef = useRef(false);
 
-    try {
-      const data = await api("/posts");
-      setPosts(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err.message || "Could not load posts.");
-    } finally {
-      setLoading(false);
+  const POSTS_PER_PAGE = 8;
+
+  // Load the first 8 posts.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialPosts() {
+      setLoading(true);
+      setError("");
+      requestInProgressRef.current = true;
+
+      try {
+        const data = await api(
+          `/posts?page=1&limit=${POSTS_PER_PAGE}`
+        );
+
+        const list = Array.isArray(data)
+          ? data
+          : data.posts || [];
+
+        if (!cancelled) {
+          setPosts(list);
+          setPage(1);
+          setHasMore(
+            typeof data.hasMore === "boolean"
+              ? data.hasMore
+              : list.length === POSTS_PER_PAGE
+          );
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Unable to load stories.");
+        }
+      } finally {
+        requestInProgressRef.current = false;
+
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
     }
+
+    loadInitialPosts();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  // Load the next page when the user scrolls near the bottom.
+  const loadMorePosts = useCallback(async () => {
+    if (
+      requestInProgressRef.current ||
+      loading ||
+      loadingMore ||
+      !hasMore ||
+      error
+    ) {
+      return;
+    }
+
+    requestInProgressRef.current = true;
+    setLoadingMore(true);
+    setError("");
+
+    const nextPage = page + 1;
+
+    try {
+      const data = await api(
+        `/posts?page=${nextPage}&limit=${POSTS_PER_PAGE}`
+      );
+
+      const list = Array.isArray(data)
+        ? data
+        : data.posts || [];
+
+      setPosts((previousPosts) => {
+        // Prevent duplicate posts if a request is repeated.
+        const existingIds = new Set(
+          previousPosts.map((post) => post.id)
+        );
+
+        const newPosts = list.filter(
+          (post) => !existingIds.has(post.id)
+        );
+
+        return [...previousPosts, ...newPosts];
+      });
+
+      setPage(nextPage);
+
+      setHasMore(
+        typeof data.hasMore === "boolean"
+          ? data.hasMore
+          : list.length === POSTS_PER_PAGE
+      );
+    } catch (err) {
+      setError(err.message || "Unable to load more stories.");
+    } finally {
+      requestInProgressRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [page, loading, loadingMore, hasMore, error]);
+
+  // Observe the element at the bottom of the story grid.
   useEffect(() => {
-    loadPosts();
-  }, [loadPosts]);
+    const target = observerRef.current;
+
+    if (!target || !hasMore || loading || error) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMorePosts();
+        }
+      },
+      {
+        root: null,
+        rootMargin: "300px",
+        threshold: 0,
+      }
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [loadMorePosts, hasMore, loading, error]);
+
+  function formatDate(date) {
+    if (!date) return "Recently published";
+
+    const parsed = new Date(date);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return "Recently published";
+    }
+
+    return parsed.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  // Read category values from the post data returned by the API.
+  // If a post has no category saved in the database, it is grouped as Uncategorized.
+  function getPostCategory(post) {
+    return (
+      post.category_name ||
+      post.category ||
+      post.categoryName ||
+      "Uncategorized"
+    ).toString().trim() || "Uncategorized";
+  }
+
+const categoryOptions = [
+  "all",
+  "Horror Story",
+  "Romantic Story",
+  "Valuable Story",
+  "Learning Story",
+];
+  
+  // Search, filter by category, and sort the loaded stories.
+  const filteredPosts = posts
+    .filter((post) => {
+      const author =
+        post.author_name ||
+        post.author?.name ||
+        post.user_name ||
+        post.name ||
+        "Blog Author";
+
+      const searchableText = [
+        post.title || "",
+        // post.content || "",
+        author,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      // Public landing page always shows the full collection.
+      // Search and category filtering apply only to logged-in users.
+      const matchesSearch =
+        !user ||
+        searchableText.includes(searchTerm.trim().toLowerCase());
+
+      const matchesCategory =
+        !user ||
+        selectedCategory === "all" ||
+        getPostCategory(post).toLowerCase() ===
+          selectedCategory.toLowerCase();
+
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => {
+      // Keep the public landing page in its normal newest-first order.
+      if (!user) {
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      }
+
+      if (sortBy === "oldest") {
+        return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+      }
+
+      if (sortBy === "title") {
+        return (a.title || "").localeCompare(b.title || "");
+      }
+
+      if (sortBy === "likes") {
+        const likesA = Number(a.total_likes ?? a.likes ?? a.like_count ?? 0);
+        const likesB = Number(b.total_likes ?? b.likes ?? b.like_count ?? 0);
+        return likesB - likesA;
+      }
+
+      // Newest first is the default.
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+
+  const hasActiveFilters =
+    selectedCategory !== "all" || sortBy !== "newest" || searchTerm.trim() !== "";
 
   return (
-    <main>
-      <section className="hero">
-        <span className="eyebrow">𝒜 𝒯𝓇𝑒𝒶𝓈𝓊𝓇𝑒 𝒯𝓇𝑜𝓋𝑒 𝑜𝒻 𝐵𝑜𝑜𝓀𝓈 ✍</span>
-      </section>
+    <main className="home-page">
+      {/* PUBLIC LANDING HERO */}
+      {!user && (
+        <>
+          <section className="welcome-hero">
+            <div className="hero-copy">
+              <div className="hero-eyebrow">
+                <span>✦</span> A TREASURE TROVE OF BOOKS
+              </div>
 
-      <section className="content-section">
-        <div className="section-heading">
-          <span className="muted">{posts.length} posts</span>
+              <h1>
+                Welcome to
+                <span>Social Blog.</span>
+              </h1>
+
+              <div className="hero-underline" />
+
+              <p className="hero-lead">
+                A space for thoughtful words, fresh perspectives,
+                and stories worth sharing.
+              </p>
+
+              <p className="hero-description">
+                Discover inspiring stories, explore new ideas,
+                and enjoy a community that believes in the
+                power of good writing. Every page holds a new
+                perspective, and every story has something to say.
+              </p>
+
+              <div className="hero-highlights">
+                <div className="hero-highlight">
+                  <span className="highlight-icon">♧</span>
+                  <strong>Read</strong>
+                  <small>Amazing stories</small>
+                </div>
+
+                <div className="hero-highlight">
+                  <span className="highlight-icon">✎</span>
+                  <strong>Share</strong>
+                  <small>Your thoughts</small>
+                </div>
+
+                <div className="hero-highlight">
+                  <span className="highlight-icon">♡</span>
+                  <strong>Connect</strong>
+                  <small>With a community</small>
+                </div>
+              </div>
+
+              <a
+                className="wallpaper-hero-link"
+                href="#discover-stories"
+              >
+                Discover stories <span>↓</span>
+              </a>
+            </div>
+
+           <div className="hero-visual">
+              <img
+                src="/images/reading-hero.jpeg"
+                alt="A peaceful reading corner filled with books and warm sunlight"
+              />
+              <div className="hero-image-caption">
+                <span>YOUR NEXT CHAPTER STARTS HERE</span>
+                <strong>Every story opens a new world.</strong>
+              </div>
+            </div>
+          </section>
+
+          <section className="hero-features">
+            <article className="feature-item">
+              <span>♧</span>
+              <h3>Inspiring Stories</h3>
+              <p>Discover ideas that stay with you.</p>
+            </article>
+
+            <article className="feature-item">
+              <span>❧</span>
+              <h3>Fresh Perspectives</h3>
+              <p>See the world through new eyes.</p>
+            </article>
+
+            <article className="feature-item">
+              <span>♧</span>
+              <h3>Growing Community</h3>
+              <p>Connect through words and ideas.</p>
+            </article>
+
+            <article className="feature-item">
+              <span>♡</span>
+              <h3>Built with Passion</h3>
+              <p>Because every story matters.</p>
+            </article>
+          </section>
+        </>
+      )}
+
+      {/* STORY COLLECTION */}
+      <section
+        className="discover-section"
+        id="discover-stories"
+      >
+        <div className="discover-heading">
+          <div className="discover-heading-copy">
+            <span className="discover-eyebrow">
+              {user
+                ? "YOUR DAILY DOSE OF INSPIRATION"
+                : "EXPLORE THE COLLECTION"}
+            </span>
+
+            <h2>
+              Stories Worth <span>Discovering.</span>
+            </h2>
+
+            <p>
+              A collection of ideas, books, and perspectives
+              waiting to be explored.
+            </p>
+          </div>
+
+          {!loading && !error && (
+            <span className="discover-count">
+              {filteredPosts.length}{" "}
+              {filteredPosts.length === 1 ? "STORY" : "STORIES"}
+            </span>
+          )}
         </div>
 
-        {loading && <p>Loading posts...</p>}
+        {user && (
+          <>
+        {/* SEARCH BAR */}
+        <div className="blog-search">
+          <span className="search-icon" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              width="21"
+              height="21"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="10.8" cy="10.8" r="6.8" />
+              <path d="m16 16 4.2 4.2" />
+            </svg>
+          </span>
 
+          <input
+            type="search"
+            aria-label="Search stories"
+            placeholder="Search stories, books, authors..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+
+          {searchTerm && (
+            <button
+              type="button"
+              className="search-clear"
+              onClick={() => setSearchTerm("")}
+              aria-label="Clear search"
+              title="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+
+        {/* CATEGORY FILTER + SORT CONTROLS */}
+        <div className="story-toolbar">
+          <div className="story-toolbar-left">
+            <div className="story-control-wrap">
+              <button
+                type="button"
+                className={`story-toolbar-button ${filterMenuOpen || selectedCategory !== "all" ? "is-active" : ""}`}
+                aria-expanded={filterMenuOpen}
+                aria-haspopup="true"
+                onClick={() => {
+                  setFilterMenuOpen((open) => !open);
+                  setSortMenuOpen(false);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 7h16M7 12h10m-7 5h4" />
+                </svg>
+                Filter
+                {selectedCategory !== "all" && (
+                  <span className="story-control-dot" />
+                )}
+                <span className="story-control-chevron">⌄</span>
+              </button>
+
+              {filterMenuOpen && (
+                <div className="story-dropdown story-filter-dropdown">
+                  <div className="story-dropdown-heading">
+                    <strong>Filter by category</strong>
+                    <span>Choose a topic</span>
+                  </div>
+                  {categoryOptions.map((category) => (
+                    <button
+                      type="button"
+                      className={`story-dropdown-option ${selectedCategory === category ? "selected" : ""}`}
+                      key={category}
+                      onClick={() => {
+                        setSelectedCategory(category);
+                        setFilterMenuOpen(false);
+                      }}
+                    >
+                      <span>
+                        {category === "all" ? "All categories" : category}
+                      </span>
+                      {selectedCategory === category && (
+                        <span className="story-option-check">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="story-control-wrap">
+              <button
+                type="button"
+                className={`story-toolbar-button ${sortMenuOpen || sortBy !== "newest" ? "is-active" : ""}`}
+                aria-expanded={sortMenuOpen}
+                aria-haspopup="true"
+                onClick={() => {
+                  setSortMenuOpen((open) => !open);
+                  setFilterMenuOpen(false);
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 4v16m0 0-4-4m4 4 4-4M16 20V4m0 0-4 4m4-4 4 4" />
+                </svg>
+                Sort by
+                <span className="story-control-chevron">⌄</span>
+              </button>
+
+              {sortMenuOpen && (
+                <div className="story-dropdown story-sort-dropdown">
+                  <div className="story-dropdown-heading">
+                    <strong>Sort stories</strong>
+                    <span>Arrange the collection</span>
+                  </div>
+                  {[
+                    { value: "newest", label: "Newest first", detail: "Recently published" },
+                    { value: "oldest", label: "Oldest first", detail: "First published" },
+                    { value: "title", label: "Title: A–Z", detail: "Alphabetical order" },
+                    { value: "likes", label: "Most liked", detail: "Popular stories first" },
+                  ].map((option) => (
+                    <button
+                      type="button"
+                      className={`story-dropdown-option story-sort-option ${sortBy === option.value ? "selected" : ""}`}
+                      key={option.value}
+                      onClick={() => {
+                        setSortBy(option.value);
+                        setSortMenuOpen(false);
+                      }}
+                    >
+                      <span className="story-sort-option-copy">
+                        <strong>{option.label}</strong>
+                        <small>{option.detail}</small>
+                      </span>
+                      {sortBy === option.value && (
+                        <span className="story-option-check">✓</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="story-toolbar-right">
+            {selectedCategory !== "all" && (
+              <span className="story-active-filter">
+                {selectedCategory}
+                <button
+                  type="button"
+                  aria-label="Remove category filter"
+                  onClick={() => setSelectedCategory("all")}
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="story-reset-button"
+                onClick={() => {
+                  setSelectedCategory("all");
+                  setSortBy("newest");
+                  setSearchTerm("");
+                  setFilterMenuOpen(false);
+                  setSortMenuOpen(false);
+                }}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+          </>
+        )}
+
+        <style>{`
+          .story-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin: 18px 0 28px;
+            position: relative;
+            z-index: 5;
+          }
+          .story-toolbar-left, .story-toolbar-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+          }
+          .story-control-wrap { position: relative; }
+          .story-toolbar-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 9px;
+            min-height: 44px;
+            padding: 0 16px;
+            border: 1px solid #e3dfd6;
+            border-radius: 12px;
+            background: #fffdf9;
+            color: #34342f;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 650;
+            cursor: pointer;
+            transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
+          }
+          .story-toolbar-button:hover, .story-toolbar-button.is-active {
+            border-color: #a58a60;
+            background: #f8f3e9;
+            box-shadow: 0 4px 14px rgba(64, 49, 25, .06);
+          }
+          .story-toolbar-button svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 1.7;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+          }
+          .story-control-chevron { margin-left: 3px; color: #777267; font-size: 16px; }
+          .story-control-dot { width: 6px; height: 6px; border-radius: 50%; background: #967344; }
+          .story-dropdown {
+            position: absolute;
+            top: calc(100% + 9px);
+            left: 0;
+            width: 250px;
+            max-width: min(280px, calc(100vw - 40px));
+            padding: 9px;
+            border: 1px solid #e8e2d8;
+            border-radius: 16px;
+            background: #fffefa;
+            box-shadow: 0 18px 45px rgba(38, 32, 22, .14);
+            z-index: 20;
+            animation: storyDropdownIn .16s ease-out;
+          }
+          .story-sort-dropdown { width: 270px; }
+          .story-dropdown-heading { display: flex; flex-direction: column; gap: 3px; padding: 10px 10px 12px; }
+          .story-dropdown-heading strong { color: #292820; font-size: 13px; }
+          .story-dropdown-heading span { color: #8b8579; font-size: 12px; }
+          .story-dropdown-option {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            border: 0;
+            border-radius: 10px;
+            background: transparent;
+            padding: 11px 10px;
+            color: #48463f;
+            text-align: left;
+            font: inherit;
+            font-size: 13px;
+            cursor: pointer;
+          }
+          .story-dropdown-option:hover { background: #f7f3eb; }
+          .story-dropdown-option.selected { background: #f3ede1; color: #74572f; font-weight: 650; }
+          .story-option-check { font-size: 15px; font-weight: 800; }
+          .story-sort-option { align-items: center; }
+          .story-sort-option-copy { display: flex; flex-direction: column; gap: 3px; }
+          .story-sort-option-copy strong { font-size: 13px; font-weight: 650; }
+          .story-sort-option-copy small { color: #8b8579; font-size: 11px; font-weight: 400; }
+          .story-active-filter {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 10px;
+            border-radius: 999px;
+            background: #f3ede1;
+            color: #74572f;
+            font-size: 12px;
+            font-weight: 650;
+          }
+          .story-active-filter button {
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font-size: 17px;
+            line-height: 1;
+            cursor: pointer;
+          }
+          .story-reset-button {
+            border: 0;
+            background: transparent;
+            color: #806640;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 650;
+            cursor: pointer;
+            padding: 8px 4px;
+          }
+          .story-reset-button:hover { color: #45331c; text-decoration: underline; }
+          @keyframes storyDropdownIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @media (max-width: 520px) {
+            .story-toolbar { align-items: flex-start; }
+            .story-toolbar-left { width: 100%; }
+            .story-control-wrap { flex: 1; }
+            .story-toolbar-button { width: 100%; padding: 0 11px; }
+            .story-dropdown { width: 100%; min-width: 0; }
+            .story-toolbar-right { width: 100%; justify-content: flex-start; }
+          }
+        `}</style>
+
+        {/* INITIAL LOADING */}
+        {loading && (
+          <div className="discover-message">
+            <div className="loading-spinner" />
+            <p>Discovering stories...</p>
+          </div>
+        )}
+
+        {/* ERROR */}
         {error && (
-          <div>
-            <p className="alert" role="alert">{error}</p>
+          <div className="discover-message" role="alert">
+            <p>{error}</p>
+
             <button
               type="button"
               className="button button-ghost"
-              onClick={loadPosts}
+              onClick={() => {
+                if (posts.length === 0) {
+                  window.location.reload();
+                } else {
+                  loadMorePosts();
+                }
+              }}
             >
               Try again
             </button>
           </div>
         )}
 
+        {/* NO POSTS */}
         {!loading && !error && posts.length === 0 && (
-          <div className="empty-state">
-            <h3>The story starts here.</h3>
-            <p>No posts have been published yet.</p>
+          <div className="discover-message">
+            <span className="discover-empty-icon">✧</span>
+            <h3>The first page is waiting to be written.</h3>
+            <p>Come back soon to discover new stories.</p>
           </div>
         )}
 
-        <div className="post-grid">
-          {posts.map((post, index) => (
-            <article className="post-card" key={post.id}>
-              {post.image ? (
-                <img
-                  className="post-image"
-                  src={imageUrl(post.image)}
-                  alt={post.title}
-                  loading="lazy"
-                />
-              ) : (
-                <div className={`post-art art-${index % 4}`}>
-                  <span>{String(index + 1).padStart(2, "0")}</span>
-                  <span>FIELD NOTES</span>
+        {/* NO SEARCH RESULTS AMONG LOADED POSTS */}
+        {!loading &&
+          !error &&
+          posts.length > 0 &&
+          filteredPosts.length === 0 && (
+            <div className="discover-message search-empty-state">
+              <span className="discover-empty-icon">⌕</span>
+              <h3>No stories found</h3>
+
+              <p>
+                No loaded stories match your current search and category.
+                Try another keyword or reset your filters.
+              </p>
+
+              <button
+                type="button"
+                className="button button-ghost"
+                onClick={() => {
+                  setSearchTerm("");
+                  setSelectedCategory("all");
+                }}
+              >
+                Clear search and filters
+              </button>
+            </div>
+          )}
+
+        {/* STORY GRID */}
+        {!loading && !error && filteredPosts.length > 0 && (
+          <div className="wallpaper-grid">
+            {filteredPosts.map((post, index) => {
+              const author =
+                post.author_name ||
+                post.author?.name ||
+                post.user_name ||
+                post.name ||
+                "Blog Author";
+
+              return (
+                <Link
+                  to={`/posts/${post.id}`}
+                  className={`wallpaper-card ${
+                    index === 0 ? "wallpaper-card-featured" : ""
+                  }`}
+                  key={post.id}
+                  aria-label={`Read ${post.title}`}
+                >
+                  <div className="wallpaper-image-wrap">
+                    {post.image ? (
+                      <img
+  className="wallpaper-image"
+  src={imageUrl(post.image)}
+  alt={post.title || "Story cover"}
+  loading="lazy"
+  onError={(event) => {
+    console.error("Image failed to load:", {
+      originalPath: post.image,
+      requestedUrl: event.currentTarget.src,
+    });
+  }}
+/>
+                    ) : (
+                      <div className="wallpaper-placeholder">
+                        <span>𝚂.</span>
+                        <p>A STORY TO DISCOVER</p>
+                      </div>
+                    )}
+
+                    <div className="wallpaper-overlay" />
+
+                    <div className="wallpaper-top-label">
+                      <span>✦</span> SOCIAL BLOG
+                    </div>
+
+                    <div className="wallpaper-card-content">
+                      <span className="wallpaper-category">
+                        {index === 0
+                          ? "FEATURED STORY"
+                          : "STORY COLLECTION"}
+                      </span>
+
+                      <h3>{post.title || "Untitled story"}</h3>
+
+                      <div className="wallpaper-card-meta">
+                        <span>By {author}</span>
+                        <span className="wallpaper-meta-dot">·</span>
+                        <time>
+                          {formatDate(post.created_at)}
+                        </time>
+                      </div>
+
+                      <span className="wallpaper-read-link">
+                        Explore story <span>↗</span>
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+
+        {/* INFINITE SCROLL TRIGGER */}
+        {!loading &&
+          !error &&
+          hasMore &&
+          posts.length > 0 && (
+            <div
+              ref={observerRef}
+              className="infinite-scroll-trigger"
+              aria-live="polite"
+            >
+              {loadingMore && (
+                <div className="discover-message">
+                  <div className="loading-spinner" />
+                  <p>Loading more stories...</p>
                 </div>
               )}
+            </div>
+          )}
 
-              <div className="post-card-body">
-                <p className="post-date">
-                  {post.created_at
-                    ? new Date(post.created_at).toLocaleDateString(
-                        undefined,
-                        {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        }
-                      )
-                    : "Recently published"}
-                </p>
+        {/* END OF COLLECTION */}
+        {!loading &&
+          !error &&
+          !hasMore &&
+          posts.length > 0 && (
+            <div className="infinite-scroll-end">
+              <span>✦</span>
+              <p>YOU'VE REACHED THE END OF THE COLLECTION.</p>
+            </div>
+          )}
 
-                <h3>
-                  <Link to={`/posts/${post.id}`}>
-                    {post.title}
-                  </Link>
-                </h3>
-
-                <p className="excerpt">
-  {post.content || ""}
-</p>
-                <Link
-                  className="read-link"
-                  to={`/posts/${post.id}`}
-                >
-                  Read post <span>↗</span>
-                </Link>
-              </div>
-            </article>
-          ))}
-        </div>
+        {!user && (
+          <div className="discover-footer">
+            <span className="discover-footer-line" />
+            <p>GOOD STORIES DESERVE TO BE SHARED.</p>
+            <span className="discover-footer-line" />
+          </div>
+        )}
       </section>
     </main>
   );
 }
 
-
 // =========================
 // PUBLIC POST DETAILS
 // =========================
+
 
 function PostDetails({ user, onOpenAuth }) {
   const { id } = useParams();
@@ -777,16 +1564,17 @@ function PostDetails({ user, onOpenAuth }) {
 
   const [voteBusy, setVoteBusy] = useState(false);
   const [voteError, setVoteError] = useState("");
+  const [isPostOwner, setIsPostOwner] = useState(false);
 
-  // Comment popup state
+  // Comments
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
-  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsLoading, setCommentsLoading] = useState(true);
   const [commentBusy, setCommentBusy] = useState(false);
   const [commentError, setCommentError] = useState("");
 
-  // Load post
+  // Load post details
   useEffect(() => {
     let active = true;
 
@@ -797,13 +1585,18 @@ function PostDetails({ user, onOpenAuth }) {
 
       try {
         const data = await api(`/posts/${id}`);
-        if (active) setPost(data.post || data);
+
+        if (active) {
+          setPost(data.post || data);
+        }
       } catch (err) {
         if (active) {
           setError(err.message || "Could not load this article.");
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     }
 
@@ -814,28 +1607,24 @@ function PostDetails({ user, onOpenAuth }) {
     };
   }, [id]);
 
-  // Load votes
+  // Load Like / Dislike totals
   useEffect(() => {
     let active = true;
 
     async function loadLikes() {
-      if (!user) {
-        setLikes({
-          totalLikes: 0,
-          totalDislikes: 0,
-          userVote: 0,
-        });
-        return;
-      }
-
       try {
         const data = await getPostLikes(id);
 
         if (active) {
+          const owner = Boolean(data.isPostOwner);
+
+          setIsPostOwner(owner);
           setLikes({
             totalLikes: Number(data.totalLikes) || 0,
-            totalDislikes: Number(data.totalDislikes) || 0,
-            userVote: Number(data.userVote) || 0,
+            totalDislikes: owner
+              ? Number(data.totalDislikes) || 0
+              : 0,
+            userVote: user ? Number(data.userVote) || 0 : 0,
           });
         }
       } catch (err) {
@@ -852,16 +1641,18 @@ function PostDetails({ user, onOpenAuth }) {
     };
   }, [id, user]);
 
-  // Load comments from the backend
+  // Load comments
   const loadComments = useCallback(async () => {
     setCommentsLoading(true);
     setCommentError("");
 
     try {
       const data = await api(`/posts/${id}/comments`);
-      setComments(
-        Array.isArray(data) ? data : data.comments || []
-      );
+      const list = Array.isArray(data)
+        ? data
+        : data.comments || [];
+
+      setComments(list);
     } catch (err) {
       setCommentError(err.message || "Could not load comments.");
     } finally {
@@ -869,14 +1660,30 @@ function PostDetails({ user, onOpenAuth }) {
     }
   }, [id]);
 
-  // Load comments when the popup opens
+  // Load comments when the post page opens
   useEffect(() => {
-    if (commentsOpen) {
-      loadComments();
-    }
-  }, [commentsOpen, loadComments]);
+    loadComments();
+  }, [loadComments]);
 
-  // Like / dislike — existing functionality preserved
+  // Sort comments newest first
+  const sortedComments = [...comments].sort((a, b) => {
+    const dateA = new Date(a.created_at || 0).getTime();
+    const dateB = new Date(b.created_at || 0).getTime();
+
+    if (dateA !== dateB) {
+      return dateB - dateA;
+    }
+
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
+
+  // Latest three comments appear on the page
+  const latestComments = sortedComments.slice(0, 3);
+
+  // Older comments appear in the popup
+  const olderComments = sortedComments.slice(3);
+
+  // Like / Dislike
   async function handleVote(status) {
     if (!user) {
       onOpenAuth?.("login");
@@ -894,11 +1701,13 @@ function PostDetails({ user, onOpenAuth }) {
           ? await removePostVote(id)
           : await votePost(id, status);
 
-      setLikes({
+      setLikes((previous) => ({
         totalLikes: Number(data.totalLikes) || 0,
-        totalDislikes: Number(data.totalDislikes) || 0,
+        totalDislikes: isPostOwner
+          ? Number(data.totalDislikes ?? previous.totalDislikes) || 0
+          : 0,
         userVote: Number(data.userVote) || 0,
-      });
+      }));
     } catch (err) {
       setVoteError(err.message || "Could not save your vote.");
     } finally {
@@ -906,7 +1715,7 @@ function PostDetails({ user, onOpenAuth }) {
     }
   }
 
-  // Submit a new comment
+  // Submit a comment
   async function handleCommentSubmit(event) {
     event.preventDefault();
 
@@ -928,19 +1737,25 @@ function PostDetails({ user, onOpenAuth }) {
         body: JSON.stringify({ comment: text }),
       });
 
-      // Support either a returned comment or a refreshed list.
-      if (data.comment) {
-        setComments((previous) => [
-          ...previous,
-          data.comment,
-        ]);
-      } else {
-        await loadComments();
-      }
-
       setCommentText("");
+
+      // Refresh from the database to keep the count and order correct.
+      await loadComments();
+
+      // Support APIs that return a newly created comment.
+      if (data.comment) {
+        setComments((previous) => {
+          const exists = previous.some(
+            (item) => String(item.id) === String(data.comment.id)
+          );
+
+          return exists ? previous : [...previous, data.comment];
+        });
+      }
     } catch (err) {
-      setCommentError(err.message || "Could not submit your comment.");
+      setCommentError(
+        err.message || "Could not submit your comment."
+      );
     } finally {
       setCommentBusy(false);
     }
@@ -1005,10 +1820,7 @@ function PostDetails({ user, onOpenAuth }) {
           </div>
 
           <div className="read-post-content">
-            <span className="read-post-eyebrow">
-              THE JOURNAL · ARTICLE
-            </span>
-
+           
             <h1 className="read-post-title">{post.title}</h1>
 
             <div className="read-post-meta">
@@ -1028,7 +1840,7 @@ function PostDetails({ user, onOpenAuth }) {
           </div>
         </div>
 
-        {/* Reactions */}
+        {/* Like and Dislike */}
         <section
           className="read-post-reactions"
           aria-label="Post reactions"
@@ -1049,63 +1861,183 @@ function PostDetails({ user, onOpenAuth }) {
             </p>
           )}
 
-          <div className="read-post-votes">
-            <button
-              type="button"
-              className={`read-post-vote like-vote ${
-                likes.userVote === 1 ? "is-active" : ""
-              }`}
-              aria-pressed={likes.userVote === 1}
-              disabled={voteBusy}
-              onClick={() => handleVote(1)}
-            >
-              <i className="fa-solid fa-heart" aria-hidden="true" />
-              <span>Like</span>
-              <span className="read-post-vote-count">
-                {likes.totalLikes}
-              </span>
-            </button>
+<div className="read-post-vote-group">
+  <button
+    type="button"
+    className={`read-post-vote ${
+      likes.userVote === 1 ? "is-active" : ""
+    }`}
+    onClick={() => handleVote(1)}
+    disabled={voteBusy}
+    aria-label="Like post"
+    aria-pressed={likes.userVote === 1}
+  >
+    <svg
+      className="thumb-icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path
+        d="M7 10v11H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3Zm0 0 5-8c2 0 3 2 2 4l-1 4h5a3 3 0 0 1 3 4l-2 6a3 3 0 0 1-3 2H7"
+      />
+    </svg>
+    <span>{likes.totalLikes}</span>
+  </button>
 
-            <button
-              type="button"
-              className={`read-post-vote dislike-vote ${
-                likes.userVote === -1 ? "is-active" : ""
-              }`}
-              aria-pressed={likes.userVote === -1}
-              disabled={voteBusy}
-              onClick={() => handleVote(-1)}
-            >
-              <i className="fa-solid fa-thumbs-down" aria-hidden="true" />
-              <span>Dislike</span>
-              <span className="read-post-vote-count">
-                {likes.totalDislikes}
-              </span>
-            </button>
+  <button
+    type="button"
+    className={`read-post-vote ${
+      likes.userVote === -1 ? "is-active" : ""
+    }`}
+    onClick={() => handleVote(-1)}
+    disabled={voteBusy}
+    aria-label="Dislike post"
+    aria-pressed={likes.userVote === -1}
+  >
+    <svg
+      className="thumb-icon thumb-down"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path
+        d="M7 14V3H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3Zm0 0 5 8c2 0 3-2 2-4l-1-4h5a3 3 0 0 0 3-4l-2-6a3 3 0 0 0-3-2H7"
+      />
+    </svg>
+    <span>{likes.totalDislikes}</span>
+  </button>
+</div>
 
-            {/* New comment button */}
-            <button
-              type="button"
-              className="read-post-vote comment-vote"
-              aria-expanded={commentsOpen}
-              onClick={() => setCommentsOpen((open) => !open)}
-            >
-              <i className="fa-regular fa-comment" aria-hidden="true" />
-              <span>Comment</span>
-              <span className="read-post-vote-count">
-                {comments.length}
-              </span>
-            </button>
-          </div>
 
           {voteBusy && (
             <p className="read-post-voting-status">
               Saving your reaction...
             </p>
           )}
+
+          {/* Comment box directly below Like / Dislike */}
+          <section className="read-post-comments">
+            <div className="read-post-comments-heading">
+              <div>
+                <h2>Comments</h2>
+                <p>
+                  Join the conversation · {comments.length} comments
+                </p>
+              </div>
+            </div>
+
+            {commentError && (
+              <p className="alert" role="alert">
+                {commentError}
+              </p>
+            )}
+
+            <form
+              className="comment-popup-form comment-inline-form"
+              onSubmit={handleCommentSubmit}
+            >
+              <label htmlFor="new-comment">
+                Write a comment
+              </label>
+
+              <textarea
+                id="new-comment"
+                value={commentText}
+                onChange={(event) => setCommentText(event.target.value)}
+                placeholder={
+                  user
+                    ? "Share your thoughts about this post..."
+                    : "Sign in to share your thoughts..."
+                }
+                rows={3}
+                maxLength={2000}
+                required
+              />
+
+              <div className="comment-popup-form-footer">
+                <span>{commentText.length}/2000</span>
+
+                <button
+                  type="submit"
+                  className="button"
+                  disabled={commentBusy || !commentText.trim()}
+                >
+                  <i
+                    className="fa-regular fa-paper-plane"
+                    aria-hidden="true"
+                  />
+                  {commentBusy ? "Sending..." : "Post Comment"}
+                </button>
+              </div>
+            </form>
+
+            {/* Latest three comments */}
+            <div className="latest-comments-section">
+              <h3>Latest comments</h3>
+
+              {commentsLoading ? (
+                <p className="comment-empty">
+                  Loading comments...
+                </p>
+              ) : comments.length === 0 ? (
+                <div className="comment-empty">
+                  <i
+                    className="fa-regular fa-comments"
+                    aria-hidden="true"
+                  />
+                  <p>No comments yet.</p>
+                  <span>
+                    Be the first to share your thoughts.
+                  </span>
+                </div>
+              ) : (
+                <div className="latest-comments-list">
+                  {latestComments.map((item) => (
+                    <article className="comment-item" key={item.id}>
+                      <div className="comment-avatar">
+                        {(item.user_name || item.name || "U")
+                          .charAt(0)
+                          .toUpperCase()}
+                      </div>
+
+                      <div className="comment-item-content">
+                        <div className="comment-item-meta">
+                          <strong>
+                            {item.user_name || item.name || "User"}
+                          </strong>
+
+                          <time>
+                            {item.created_at
+                              ? new Date(
+                                  item.created_at
+                                ).toLocaleDateString()
+                              : "Just now"}
+                          </time>
+                        </div>
+
+                        <p>{item.comment}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+
+              {/* Older comments popup button */}
+              {olderComments.length > 0 && (
+                <button
+                  type="button"
+                  className="see-more-comments"
+                  onClick={() => setCommentsOpen(true)}
+                >
+                  See more comments ({olderComments.length})
+                  <span aria-hidden="true"> →</span>
+                </button>
+              )}
+            </div>
+          </section>
         </section>
       </article>
 
-      {/* Small comment popup */}
+      {/* Popup showing comments older than the latest three */}
       {commentsOpen && (
         <div
           className="comment-popup-backdrop"
@@ -1123,10 +2055,8 @@ function PostDetails({ user, onOpenAuth }) {
           >
             <header className="comment-popup-header">
               <div>
-                <h2 id="comment-popup-title">Comments</h2>
-                <p>
-                  Join the conversation · {comments.length} comments
-                </p>
+                <h2 id="comment-popup-title">More comments</h2>
+                <p>{olderComments.length} older comments</p>
               </div>
 
               <button
@@ -1141,21 +2071,20 @@ function PostDetails({ user, onOpenAuth }) {
 
             <div className="comment-popup-list">
               {commentsLoading ? (
-                <p className="comment-empty">Loading comments...</p>
-              ) : commentError && comments.length === 0 ? (
-                <p className="alert" role="alert">{commentError}</p>
-              ) : comments.length === 0 ? (
+                <p className="comment-empty">
+                  Loading comments...
+                </p>
+              ) : olderComments.length === 0 ? (
                 <div className="comment-empty">
-                  <i className="fa-regular fa-comments" />
-                  <p>No comments yet.</p>
-                  <span>Be the first to share your thoughts.</span>
+                  <i
+                    className="fa-regular fa-comments"
+                    aria-hidden="true"
+                  />
+                  <p>No older comments yet.</p>
                 </div>
               ) : (
-                comments.map((item) => (
-                  <article
-                    className="comment-item"
-                    key={item.id}
-                  >
+                olderComments.map((item) => (
+                  <article className="comment-item" key={item.id}>
                     <div className="comment-avatar">
                       {(item.user_name || item.name || "U")
                         .charAt(0)
@@ -1167,6 +2096,7 @@ function PostDetails({ user, onOpenAuth }) {
                         <strong>
                           {item.user_name || item.name || "User"}
                         </strong>
+
                         <time>
                           {item.created_at
                             ? new Date(
@@ -1182,42 +2112,6 @@ function PostDetails({ user, onOpenAuth }) {
                 ))
               )}
             </div>
-
-            <form
-              className="comment-popup-form"
-              onSubmit={handleCommentSubmit}
-            >
-              {commentError && comments.length > 0 && (
-                <p className="alert" role="alert">
-                  {commentError}
-                </p>
-              )}
-
-              <label htmlFor="new-comment">Write a comment</label>
-
-              <textarea
-                id="new-comment"
-                value={commentText}
-                onChange={(event) => setCommentText(event.target.value)}
-                placeholder="Share your thoughts..."
-                rows={3}
-                maxLength={2000}
-                required
-              />
-
-              <div className="comment-popup-form-footer">
-                <span>{commentText.length}/2000</span>
-
-                <button
-                  type="submit"
-                  className="button"
-                  disabled={commentBusy || !commentText.trim()}
-                >
-                  <i className="fa-regular fa-paper-plane" />
-                  {commentBusy ? "Sending..." : "Send comment"}
-                </button>
-              </div>
-            </form>
           </section>
         </div>
       )}
@@ -1226,235 +2120,206 @@ function PostDetails({ user, onOpenAuth }) {
 }
 
 
-
 // =========================
 // ADMIN DASHBOARD
 // =========================
 
 function AdminDashboard() {
+  const PAGE_SIZE = 8;
+
   const [posts, setPosts] = useState([]);
-  const [form, setForm] = useState({ title: "", content: "" });
-  const [imageFile, setImageFile] = useState(null);
-  const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [deletingId, setDeletingId] = useState(null);
 
-  const loadPosts = useCallback(async () => {
+  const sentinelRef = useRef(null);
+  const pageRef = useRef(1);
+  const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+
+  // Update hasMore in both React state and ref.
+  function updateHasMore(value) {
+    hasMoreRef.current = value;
+    setHasMore(value);
+  }
+
+  // Load the first batch of posts.
+  const loadInitialPosts = useCallback(async () => {
+    loadingRef.current = true;
+    setLoading(true);
     setError("");
+    pageRef.current = 1;
 
     try {
-      const data = await api("/posts");
-      setPosts(Array.isArray(data) ? data : []);
+      const data = await api(
+        `/posts?page=1&limit=${PAGE_SIZE}`
+      );
+
+      const firstBatch = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.posts)
+          ? data.posts
+          : [];
+
+      setPosts(firstBatch);
+      pageRef.current = 1;
+
+      updateHasMore(
+        typeof data?.hasMore === "boolean"
+          ? data.hasMore
+          : firstBatch.length === PAGE_SIZE
+      );
     } catch (err) {
       setError(err.message || "Could not load posts.");
+      setPosts([]);
+      updateHasMore(false);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadPosts();
-  }, [loadPosts]);
+    loadInitialPosts();
+  }, [loadInitialPosts]);
 
-  function clearImageInput() {
-    setImageFile(null);
-    const imageInput = document.getElementById("post-image");
-    if (imageInput) imageInput.value = "";
-  }
-
-  async function submit(event) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    setMessage("");
-
-    try {
-      const formData = new FormData();
-      formData.append("title", form.title);
-      formData.append("content", form.content);
-
-      if (imageFile) formData.append("image", imageFile);
-
-      const url = editingId
-        ? `${API_ORIGIN}/api/posts/${editingId}`
-        : `${API_ORIGIN}/api/posts`;
-
-      const response = await fetch(url, {
-        method: editingId ? "PUT" : "POST",
-        credentials: "include",
-        body: formData,
-      });
-
-      let data = {};
-      try {
-        data = await response.json();
-      } catch {
-        data = {};
-      }
-
-      if (!response.ok) {
-        throw new Error(data.message || "Could not save the post.");
-      }
-
-      const wasEditing = Boolean(editingId);
-
-      setForm({ title: "", content: "" });
-      clearImageInput();
-      setEditingId(null);
-      setMessage(
-        wasEditing
-          ? "Article updated successfully."
-          : "Article published successfully."
-      );
-
-      await loadPosts();
-    } catch (err) {
-      setError(err.message || "Could not save the post.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function edit(post) {
-    setEditingId(post.id);
-    setForm({ title: post.title, content: post.content });
-    clearImageInput();
-    setError("");
-    setMessage("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function cancelEditing() {
-    setEditingId(null);
-    setForm({ title: "", content: "" });
-    clearImageInput();
-    setError("");
-    setMessage("");
-  }
-
-  async function remove(post) {
-    if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) {
+  // Load the next batch when the admin scrolls down.
+  const loadMorePosts = useCallback(async () => {
+    if (loadingRef.current || !hasMoreRef.current) {
       return;
     }
 
+    loadingRef.current = true;
+    setLoadingMore(true);
+    setError("");
+
+    const nextPage = pageRef.current + 1;
+
+    try {
+      const data = await api(
+        `/posts?page=${nextPage}&limit=${PAGE_SIZE}`
+      );
+
+      const nextBatch = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.posts)
+          ? data.posts
+          : [];
+
+      // Append new posts without duplicating existing IDs.
+      setPosts((previous) => {
+        const existingIds = new Set(
+          previous.map((post) => String(post.id))
+        );
+
+        const uniquePosts = nextBatch.filter(
+          (post) => !existingIds.has(String(post.id))
+        );
+
+        return [...previous, ...uniquePosts];
+      });
+
+      pageRef.current = nextPage;
+
+      updateHasMore(
+        typeof data?.hasMore === "boolean"
+          ? data.hasMore
+          : nextBatch.length === PAGE_SIZE
+      );
+    } catch (err) {
+      setError(err.message || "Could not load more posts.");
+    } finally {
+      loadingRef.current = false;
+      setLoadingMore(false);
+    }
+  }, []);
+
+  // Observe the element at the bottom of the list.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+
+    if (!sentinel || loading || !hasMore) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMorePosts();
+        }
+      },
+      {
+        root: null,
+        rootMargin: "300px",
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [loading, loadingMore, hasMore, loadMorePosts]);
+
+  // Delete a post as an admin.
+  async function remove(post) {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${post.title}"? This cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingId(post.id);
     setError("");
     setMessage("");
 
     try {
-      await api(`/posts/${post.id}`, { method: "DELETE" });
-      setMessage("Article deleted successfully.");
+      await api(`/posts/${post.id}`, {
+        method: "DELETE",
+      });
 
-      if (editingId === post.id) cancelEditing();
+      setPosts((previous) =>
+        previous.filter(
+          (item) => String(item.id) !== String(post.id)
+        )
+      );
 
-      await loadPosts();
+      setMessage(`"${post.title}" deleted successfully.`);
     } catch (err) {
       setError(err.message || "Could not delete the post.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
   return (
     <main className="content-section admin-section">
       <div className="admin-heading">
-        <div>
-          <span className="eyebrow">CONTENT MANAGEMENT</span>
-          <h1>Editorial dashboard</h1>
-          <p className="muted">Write, update, and manage your posts.</p>
-        </div>
-        <span className="admin-tag">ADMIN</span>
+          <span className="admin-tag">ADMIN</span>
       </div>
 
-      {error && <p className="alert">{error}</p>}
-      {message && <p className="success">{message}</p>}
+      {error && (
+        <p className="alert" role="alert">
+          {error}
+        </p>
+      )}
 
-      <form className="panel editor-panel" onSubmit={submit}>
-        <h2>{editingId ? "Edit post" : "Write a new post"}</h2>
-
-        <label htmlFor="post-title">Post title</label>
-        <input
-          id="post-title"
-          maxLength={200}
-          value={form.title}
-          onChange={(event) =>
-            setForm((previous) => ({
-              ...previous,
-              title: event.target.value,
-            }))
-          }
-          placeholder="Give your story a title..."
-          required
-        />
-
-        <label htmlFor="post-content">Post content</label>
-        <textarea
-          id="post-content"
-          rows={10}
-          value={form.content}
-          onChange={(event) =>
-            setForm((previous) => ({
-              ...previous,
-              content: event.target.value,
-            }))
-          }
-          placeholder="Start writing your story..."
-          required
-        />
-
-        <label htmlFor="post-image" className="upload-button">
-          <span className="text">Choose image</span>
-        </label>
-        <input
-          id="post-image"
-          name="image"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          hidden
-          onChange={(event) =>
-            setImageFile(event.target.files?.[0] || null)
-          }
-        />
-
-        {imageFile && (
-          <p className="muted">Selected image: {imageFile.name}</p>
-        )}
-
-        {editingId && (
-          <p className="muted">
-            Choose a new image to replace the current one.
-            Leave this empty to keep the existing image.
-          </p>
-        )}
-
-        <div className="editor-actions">
-          <button className="button" disabled={busy}>
-            {busy
-              ? "Saving..."
-              : editingId
-                ? "Save changes"
-                : "Publish post"}
-          </button> 
-
-          {editingId && (
-            <button
-              type="button"
-              className="button button-ghost"
-              onClick={cancelEditing}
-            >
-              Cancel editing
-            </button>
-          )}
-        </div>
-      </form>
+      {message && (
+        <p className="success" role="status">
+          {message}
+        </p>
+      )}
 
       <div className="section-heading manage-heading">
-        <h2>Published posts ({posts.length})</h2>
+        <h2>All Published Posts ({posts.length})</h2>
       </div>
 
       {loading && <p>Loading posts...</p>}
 
       {!loading && posts.length === 0 && !error && (
-        <p className="muted">No posts yet. Publish your first post above.</p>
+        <p className="muted">No published posts found.</p>
       )}
 
       <div className="manage-list">
@@ -1465,15 +2330,28 @@ function AdminDashboard() {
                 <img
                   className="manage-image"
                   src={imageUrl(post.image)}
-                  alt={post.title}
+                  alt={post.title || "Post image"}
                   loading="lazy"
                 />
               )}
+
               <h3>{post.title}</h3>
+
               <p className="muted">
+                Author:{" "}
+                {post.author_name ||
+                  post.author?.name ||
+                  post.user_name ||
+                  "Unknown author"}
+              </p>
+
+              <p className="muted">
+                Published:{" "}
                 {post.created_at
-                  ? new Date(post.created_at).toLocaleDateString()
-                  : "Recently published"}
+                  ? new Date(
+                      post.created_at
+                    ).toLocaleDateString()
+                  : "Date unavailable"}
               </p>
             </div>
 
@@ -1481,21 +2359,50 @@ function AdminDashboard() {
               <button
                 type="button"
                 className="button button-ghost"
-                onClick={() => edit(post)}
+                onClick={() => {
+                  window.location.assign(
+                    `/posts/${post.id}`
+                  );
+                }}
               >
-                Edit
+                View Post
               </button>
+
               <button
                 type="button"
                 className="button button-danger"
+                disabled={deletingId !== null}
                 onClick={() => remove(post)}
               >
-                Delete
+                {deletingId === post.id
+                  ? "Deleting..."
+                  : "Delete"}
               </button>
             </div>
           </article>
         ))}
       </div>
+
+      {/* Infinite-scroll trigger */}
+      {!loading && hasMore && (
+        <div
+          ref={sentinelRef}
+          className="admin-scroll-trigger"
+          aria-hidden="true"
+        />
+      )}
+
+      {loadingMore && (
+        <p className="admin-scroll-status" role="status">
+          Loading more posts...
+        </p>
+      )}
+
+      {!loading && !hasMore && posts.length > 0 && (
+        <p className="admin-scroll-status">
+          You've reached the end of all posts.
+        </p>
+      )}
     </main>
   );
 }
@@ -1506,119 +2413,221 @@ function AdminDashboard() {
 
 function CreatePost() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ title: "", content: "" });
+
+  const [form, setForm] = useState({
+    title: "",
+    content: "",
+    category: "Learning Story",
+  });
+
   const [imageFile, setImageFile] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function submit(event) {
+  function handleChange(event) {
+    const { name, value } = event.target;
+
+    setForm((previousForm) => ({
+      ...previousForm,
+      [name]: value,
+    }));
+  }
+
+  async function handleSubmit(event) {
     event.preventDefault();
+
     setError("");
-    setBusy(true);
+
+    if (!form.title.trim() || !form.content.trim()) {
+      setError("Please enter both a title and story content.");
+      return;
+    }
 
     try {
+      setBusy(true);
+
       const formData = new FormData();
+
       formData.append("title", form.title.trim());
       formData.append("content", form.content.trim());
-      if (imageFile) formData.append("image", imageFile);
+      formData.append("category", form.category);
 
-      const response = await fetch(`${API_ORIGIN}/api/posts`, {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
-
-      let data = {};
-      try {
-        data = await response.json();
-      } catch {
-        // Response may be empty.
+      if (imageFile) {
+        formData.append("image", imageFile);
       }
 
+      const response = await fetch(
+        "http://localhost:5001/api/posts",
+        {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        throw new Error(data.message || "Could not create the post.");
+        throw new Error(
+          data.message || "Could not create the post."
+        );
       }
 
       navigate("/my-posts", {
-        replace: true,
-        state: { message: "Post published successfully." },
+        state: {
+          success: "Your story was published successfully!",
+        },
       });
     } catch (err) {
-      setError(err.message || "Could not create the post.");
+      setError(
+        err.message || "Something went wrong while publishing."
+      );
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <main className="content-section admin-section">
-      <div className="admin-heading">
-        <div>
-          <span className="eyebrow">YOUR WRITING</span>
-          <h1>Create Post</h1>
-          <p className="muted">Write and publish a new post on your blog.</p>
+    <main className="create-post-page">
+      <div className="create-post-container">
+        <div className="create-post-heading">
+          <span className="create-post-eyebrow">
+            SHARE YOUR WORDS
+          </span>
+
+          <h1>Create a Story</h1>
+
+          <p>
+            Every great story begins with an idea.
+            Share yours with the Social Blog community.
+          </p>
         </div>
-        <Link className="button button-ghost" to="/my-posts">My Posts</Link>
+
+        <form
+          className="create-post-form"
+          onSubmit={handleSubmit}
+        >
+          {error && (
+            <div className="create-post-error" role="alert">
+              {error}
+            </div>
+          )}
+
+          <div className="form-group">
+            <label htmlFor="post-title">
+              Story Title
+            </label>
+
+            <input
+              id="post-title"
+              type="text"
+              name="title"
+              value={form.title}
+              onChange={handleChange}
+              placeholder="Enter your story title"
+              maxLength={200}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="post-category">
+              Story Category
+            </label>
+
+            <select
+              id="post-category"
+              name="category"
+              value={form.category}
+              onChange={handleChange}
+              required
+            >
+              <option value="Horror Story">
+                Horror Story
+              </option>
+
+              <option value="Romantic Story">
+                Romantic Story
+              </option>
+
+              <option value="Valuable Story">
+                Valuable Story
+              </option>
+
+              <option value="Learning Story">
+                Learning Story
+              </option>
+            </select>
+
+            <small>
+              Choose the category that best describes your story.
+            </small>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="post-content">
+              Story Content
+            </label>
+
+            <textarea
+              id="post-content"
+              name="content"
+              value={form.content}
+              onChange={handleChange}
+              placeholder="Start writing your story here..."
+              rows={10}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="post-image">
+              Cover Image (Optional)
+            </label>
+
+            <input
+              id="post-image"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) => {
+                const file = event.target.files?.[0] || null;
+
+                if (file && file.size > 5 * 1024 * 1024) {
+                  setError("Image must be 5 MB or smaller.");
+                  event.target.value = "";
+                  setImageFile(null);
+                  return;
+                }
+
+                setError("");
+                setImageFile(file);
+              }}
+            />
+
+            <small>
+              Supported formats: JPG, PNG, and WebP. Maximum size: 5 MB.
+            </small>
+          </div>
+
+          {imageFile && (
+            <p className="selected-image-name">
+              Selected image: {imageFile.name}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            className="button button-primary"
+            disabled={busy}
+          >
+            {busy ? "Publishing..." : "Publish Story"}
+          </button>
+        </form>
       </div>
-
-      {error && <p className="alert" role="alert">{error}</p>}
-
-      <form className="panel editor-panel" onSubmit={submit}>
-        <label htmlFor="create-post-title">Post title</label>
-        <input
-          id="create-post-title"
-          maxLength={200}
-          value={form.title}
-          onChange={(event) =>
-            setForm((previous) => ({
-              ...previous,
-              title: event.target.value,
-            }))
-          }
-          required
-        />
-
-        <label htmlFor="create-post-content">Post content</label>
-        <textarea
-          id="create-post-content"
-          rows={10}
-          value={form.content}
-          onChange={(event) =>
-            setForm((previous) => ({
-              ...previous,
-              content: event.target.value,
-            }))
-          }
-          required
-        />
-
-        <label htmlFor="create-post-image" className="upload-button">
-          <span className="text">Choose image</span>
-        </label>
-        <input
-          id="create-post-image"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          hidden
-          onChange={(event) =>
-            setImageFile(event.target.files?.[0] || null)
-          }
-        />
-
-        {imageFile && (
-          <p className="muted">Selected image: {imageFile.name}</p>
-        )}
-
-        <div className="editor-actions">
-          <button className="button" type="submit" disabled={busy}>
-            {busy ? "Publishing..." : "Publish post"}
-          </button> 
-          <Link className="button button-ghost" to="/my-posts">Cancel</Link>
-        </div>
-      </form>
     </main>
   );
 }
+
 
 // =========================
 // NORMAL USER: MY POSTS
@@ -1951,6 +2960,592 @@ function Protected({ user, admin = false, children }) {
 }
 
 // =========================
+// PROFILE DRAWER
+// =========================
+
+
+
+
+ 
+const EMPTY_STATS = {
+  totalPosts: 0,
+  totalLikes: 0,
+  totalComments: 0,
+};
+
+const ACTIVITY_TITLES = {
+  posts: "My Posts",
+  likes: "People Who Liked My Posts",
+  comments: "Comments on My Posts",
+};
+
+function formatDate(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getActivityItems(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.activity)) return data.activity;
+  if (Array.isArray(data?.posts)) return data.posts;
+  if (Array.isArray(data?.likes)) return data.likes;
+  if (Array.isArray(data?.comments)) return data.comments;
+
+  return [];
+}
+
+function ProfileDrawer({ user, onClose, onLogout }) {
+  const [stats, setStats] = React.useState({
+    totalPosts: 0,
+    totalLikes: 0,
+    totalComments: 0,
+  });
+
+  const [statsLoading, setStatsLoading] = React.useState(true);
+  const [statsError, setStatsError] = React.useState("");
+
+  const [activeActivity, setActiveActivity] = React.useState("");
+  const [activityItems, setActivityItems] = React.useState([]);
+  const [activityLoading, setActivityLoading] = React.useState(false);
+  const [activityError, setActivityError] = React.useState("");
+
+  const [aboutEditorOpen, setAboutEditorOpen] = React.useState(false);
+  const [aboutText, setAboutText] = React.useState(user?.about || "");
+  const [aboutDraft, setAboutDraft] = React.useState(user?.about || "");
+
+  const displayName = user?.name || user?.username || "Reader";
+  const initial = displayName.trim().charAt(0).toUpperCase() || "R";
+  const avatar =
+    user?.picture || user?.avatar || user?.avatar_url || "";
+
+  React.useEffect(() => {
+    setAboutText(user?.about || "");
+    setAboutDraft(user?.about || "");
+  }, [user?.id, user?.about]);
+
+  React.useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        if (aboutEditorOpen) {
+          setAboutEditorOpen(false);
+        } else if (activeActivity) {
+          setActiveActivity("");
+        } else {
+          onClose?.();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [aboutEditorOpen, activeActivity, onClose]);
+
+
+async function loadStats() {
+  setStatsLoading(true);
+  setStatsError("");
+
+  try {
+    const data = await api("/posts/profile/stats");
+
+    setStats({
+      totalPosts: Number(data?.posts ?? data?.totalPosts ?? data?.total_posts ?? 0),
+      totalLikes: Number(data?.likes ?? data?.totalLikes ?? data?.total_likes ?? 0),
+      totalComments: Number(
+        data?.comments ?? data?.totalComments ?? data?.total_comments ?? 0
+      ),
+    });
+  } catch (error) {
+    setStatsError(
+      error?.message || "Unable to load your profile statistics."
+    );
+  } finally {
+    setStatsLoading(false);
+  }
+}
+
+  React.useEffect(() => {
+    if (user?.id) {
+      loadStats();
+    } else {
+      setStatsLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  async function openActivity(type) {
+    setActiveActivity(type);
+    setActivityItems([]);
+    setActivityError("");
+    setActivityLoading(true);
+
+    try {
+      const data = await api(
+        `/posts/profile/activity?type=${encodeURIComponent(type)}`
+      );
+
+      const items = Array.isArray(data)
+        ? data
+        : data?.items ||
+          data?.activity ||
+          data?.posts ||
+          data?.likes ||
+          data?.comments ||
+          [];
+
+      setActivityItems(Array.isArray(items) ? items : []);
+    } catch (error) {
+      setActivityError(
+        error?.message || "Unable to load activity. Please try again."
+      );
+    } finally {
+      setActivityLoading(false);
+    }
+  }
+
+  function formatDate(value) {
+    if (!value) return "";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    return date.toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  if (!user) return null;
+
+  const activityTitles = {
+    posts: "My Posts",
+    likes: "People Who Liked My Posts",
+    comments: "Comments on My Posts",
+  };
+
+  return (
+    <>
+      <div className="pd-backdrop" onClick={onClose} />
+
+      <aside
+        className="pd-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Your profile"
+      >
+        <div className="pd-topbar">
+          <span className="pd-topbar-label">YOUR SPACE</span>
+
+          <button
+            type="button"
+            className="pd-icon-button"
+            onClick={onClose}
+            aria-label="Close profile"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="pd-cover">
+          <span className="pd-cover-decoration pd-decoration-one" />
+          <span className="pd-cover-decoration pd-decoration-two" />
+          <span className="pd-cover-tag">S. SOCIAL BLOG</span>
+        </div>
+
+        <div className="pd-profile-content">
+          <div className="pd-avatar-wrap">
+            {avatar && (
+              <img
+                className="pd-avatar"
+                src={avatar}
+                alt={displayName}
+                referrerPolicy="no-referrer"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                  const fallback = event.currentTarget.nextElementSibling;
+                  if (fallback) fallback.style.display = "grid";
+                }}
+              />
+            )}
+
+            <div
+              className="pd-avatar-fallback"
+              style={{ display: avatar ? "none" : "grid" }}
+            >
+              {initial}
+            </div>
+          </div>
+
+          <div className="pd-identity">
+            <span className="pd-eyebrow">WELCOME BACK</span>
+            <h2>{displayName}</h2>
+
+            {user.email && <p className="pd-email">{user.email}</p>}
+
+            {user.role === "admin" && (
+              <span className="pd-role">Administrator</span>
+            )}
+          </div>
+
+          <section className="pd-about-section">
+            <div className="pd-section-heading">
+              <h3>About Me</h3>
+
+              <button
+                type="button"
+                className="pd-text-button"
+                onClick={() => {
+                  setAboutDraft(aboutText);
+                  setAboutEditorOpen(true);
+                }}
+              >
+                Edit
+              </button>
+            </div>
+
+            <p className="pd-about-text">
+              {aboutText.trim() ||
+                "A little space to introduce yourself to the reading community."}
+            </p>
+          </section>
+
+          <section className="pd-stats-section">
+            <div className="pd-section-heading">
+              <h3>Your Activity</h3>
+
+              <button
+                type="button"
+                className="pd-refresh-button"
+                onClick={loadStats}
+                disabled={statsLoading}
+                aria-label="Refresh statistics"
+              >
+                ↻
+              </button>
+            </div>
+
+            {statsError && (
+              <div className="pd-inline-error" role="alert">
+                <span>{statsError}</span>
+                <button type="button" onClick={loadStats}>
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <div className="pd-stats-grid">
+              <button
+                type="button"
+                className="pd-stat-card"
+                onClick={() => openActivity("posts")}
+              >
+                <span className="pd-stat-icon">▤</span>
+                <span className="pd-stat-number">
+                  {statsLoading ? "—" : stats.totalPosts}
+                </span>
+                <span className="pd-stat-label">Total Posts</span>
+                <span className="pd-stat-hint">View posts ↗</span>
+              </button>
+
+              <button
+                type="button"
+                className="pd-stat-card"
+                onClick={() => openActivity("likes")}
+              >
+                <span className="pd-stat-icon">♡</span>
+                <span className="pd-stat-number">
+                  {statsLoading ? "—" : stats.totalLikes}
+                </span>
+                <span className="pd-stat-label">Total Likes</span>
+                <span className="pd-stat-hint">See readers ↗</span>
+              </button>
+
+              <button
+                type="button"
+                className="pd-stat-card"
+                onClick={() => openActivity("comments")}
+              >
+                <span className="pd-stat-icon">☰</span>
+                <span className="pd-stat-number">
+                  {statsLoading ? "—" : stats.totalComments}
+                </span>
+                <span className="pd-stat-label">Comments</span>
+                <span className="pd-stat-hint">Read comments ↗</span>
+              </button>
+            </div>
+          </section>
+
+          <nav className="pd-menu" aria-label="Profile navigation">
+            <span className="pd-menu-heading">YOUR BLOG</span>
+
+            <Link
+              to="/my-posts"
+              className="pd-menu-link"
+              onClick={onClose}
+            >
+              <span className="pd-menu-icon">▤</span>
+              <span>My Posts</span>
+              <span className="pd-menu-arrow">↗</span>
+            </Link>
+
+            <Link
+              to="/create-post"
+              className="pd-menu-link"
+              onClick={onClose}
+            >
+              <span className="pd-menu-icon">＋</span>
+              <span>Create a Post</span>
+              <span className="pd-menu-arrow">↗</span>
+            </Link>
+
+            {user.role === "admin" && (
+              <Link
+                to="/admin"
+                className="pd-menu-link"
+                onClick={onClose}
+              >
+                <span className="pd-menu-icon">⚙</span>
+                <span>Dashboard</span>
+                <span className="pd-menu-arrow">↗</span>
+              </Link>
+            )}
+          </nav>
+
+          <button
+            type="button"
+            className="pd-logout-button"
+            onClick={onLogout}
+          >
+            <span>↪</span>
+            Log out
+          </button>
+
+          <p className="pd-footer-note">
+            A treasure trove of books and thoughts.
+          </p>
+        </div>
+      </aside>
+
+      {activeActivity && (
+        <div
+          className="pd-modal-backdrop"
+          onClick={() => setActiveActivity("")}
+        >
+          <section
+            className="pd-activity-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pd-activity-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="pd-modal-header">
+              <div>
+                <span className="pd-eyebrow">YOUR COMMUNITY</span>
+                <h2 id="pd-activity-title">
+                  {activityTitles[activeActivity]}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                className="pd-icon-button"
+                onClick={() => setActiveActivity("")}
+                aria-label="Close activity"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="pd-activity-body">
+              {activityLoading ? (
+                <div className="pd-state-message">
+                  <span className="pd-spinner" />
+                  Loading activity…
+                </div>
+              ) : activityError ? (
+                <div className="pd-state-message pd-error-state">
+                  <p>{activityError}</p>
+                  <button
+                    type="button"
+                    className="pd-primary-button"
+                    onClick={() => openActivity(activeActivity)}
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : activityItems.length === 0 ? (
+                <div className="pd-state-message">
+                  <span className="pd-empty-icon">✧</span>
+                  <h3>Nothing to show yet</h3>
+                  <p>
+                    {activeActivity === "posts"
+                      ? "Your posts will appear here."
+                      : activeActivity === "likes"
+                        ? "Likes on your posts will appear here."
+                        : "Comments on your posts will appear here."}
+                  </p>
+                </div>
+              ) : (
+                <div className="pd-activity-list">
+                  {activityItems.map((item, index) => {
+                    const person =
+                      item.user_name ||
+                      item.name ||
+                      item.liker_name ||
+                      item.commenter_name ||
+                      item.author_name ||
+                      "Reader";
+
+                    return (
+                      <article
+                        className="pd-activity-item"
+                        key={
+                          item.id ??
+                          `${item.post_id || item.post_title || "activity"}-${index}`
+                        }
+                      >
+                        <div className="pd-activity-avatar">
+                          {person.trim().charAt(0).toUpperCase() || "R"}
+                        </div>
+
+                        <div className="pd-activity-details">
+                          {activeActivity === "posts" ? (
+                            <>
+                              <h3>{item.title || "Untitled post"}</h3>
+                              <p>{formatDate(item.created_at)}</p>
+                            </>
+                          ) : activeActivity === "likes" ? (
+                            <>
+                              <p>
+                                <strong>{person}</strong> liked your post
+                              </p>
+                              <h3>
+                                {item.post_title || item.title || "Your post"}
+                              </h3>
+                              <p>{formatDate(item.created_at)}</p>
+                            </>
+                          ) : (
+                            <>
+                              <p>
+                                <strong>{person}</strong> commented on your post
+                              </p>
+                              <h3>
+                                {item.post_title || item.title || "Your post"}
+                              </h3>
+                              <p className="pd-comment-text">
+                                {item.comment || item.content || ""}
+                              </p>
+                              <p>{formatDate(item.created_at)}</p>
+                            </>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {aboutEditorOpen && (
+        <div
+          className="pd-modal-backdrop"
+          onClick={() => setAboutEditorOpen(false)}
+        >
+          <section
+            className="pd-about-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pd-about-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="pd-modal-header">
+              <div>
+                <span className="pd-eyebrow">MAKE IT PERSONAL</span>
+                <h2 id="pd-about-title">Edit About Me</h2>
+              </div>
+
+              <button
+                type="button"
+                className="pd-icon-button"
+                onClick={() => setAboutEditorOpen(false)}
+                aria-label="Close editor"
+              >
+                ×
+              </button>
+            </div>
+
+            <label className="pd-textarea-label" htmlFor="pd-about-input">
+              Tell readers a little about yourself
+            </label>
+
+            <textarea
+              id="pd-about-input"
+              className="pd-about-textarea"
+              value={aboutDraft}
+              onChange={(event) => setAboutDraft(event.target.value)}
+              maxLength={300}
+              rows={5}
+              placeholder="I love books, stories, and sharing ideas…"
+            />
+
+            <div className="pd-character-count">
+              {aboutDraft.length}/300 characters
+            </div>
+
+            <div className="pd-modal-actions">
+              <button
+                type="button"
+                className="pd-secondary-button"
+                onClick={() => setAboutEditorOpen(false)}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                className="pd-primary-button"
+                onClick={() => {
+                  setAboutText(aboutDraft.trim());
+                  setAboutEditorOpen(false);
+                }}
+              >
+                Save About Me
+              </button>
+            </div>
+
+            <p className="pd-editor-note">
+              About Me currently saves in the open component only. Permanent
+              saving requires a profile-update API endpoint.
+            </p>
+          </section>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+
+
+
+
+
+// =========================
 // MAIN APP
 // =========================
 
@@ -1959,6 +3554,7 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
   const [authModal, setAuthModal] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const navigate = useNavigate();
 
@@ -2031,27 +3627,45 @@ export default function App() {
     );
   }
 
-  return (
-    <div className="app-shell">
-      <Navbar
-        user={user}
-        onLogout={logout}
-        onOpenAuth={setAuthModal}
-      />
 
-      {authModal && !user && (
-        <AuthModal
-          mode={authModal}
-          onClose={() => setAuthModal(null)}
-          onSwitch={setAuthModal}
-          onLogin={setUser}
-        />
-      )}
+return (
+  <div className="app-shell">
+    <Navbar
+      user={user}
+      onLogout={logout}
+      onOpenAuth={setAuthModal}
+      onOpenProfile={() => setProfileOpen(true)}
+    />
+
+    {profileOpen && user && (
+      <ProfileDrawer
+        user={user}
+        onClose={() => setProfileOpen(false)}
+        onLogout={logout}
+      />
+    )}
+
+    {authModal && !user && (
+      <AuthModal
+        mode={authModal}
+        onClose={() => setAuthModal(null)}
+        onSwitch={setAuthModal}
+        onLogin={setUser}
+      />
+    )}
+
 
       <Routes>
         {/* PUBLIC: no login required */}
-        <Route path="/" element={<Home />} />
 <Route
+  path="/"
+  element={
+    <Home
+      user={user}
+      onOpenAuth={setAuthModal}
+    />
+  }
+/><Route
   path="/posts/:id"
   element={
     user ? (
@@ -2145,9 +3759,7 @@ export default function App() {
 
       <footer className="footer">
         <Link className="brand footer-brand" to="/">
-          <span className="brand-icon">𝚂.</span>
-          𝚂𝙾𝙲𝙸𝙰𝙻 𝙱𝙻𝙾𝙶
-        </Link>
+          </Link>
 
         <p>Thoughtful words. Fresh perspectives.</p>
 

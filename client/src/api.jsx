@@ -45,7 +45,7 @@ export async function votePost(postId, status) {
 
   return api(`/posts/${postId}/like`, {
     method: "POST",
-    body: JSON.stringify({ status })
+    body: JSON.stringify({ status }) 
   });
 }
 
