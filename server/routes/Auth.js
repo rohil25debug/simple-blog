@@ -80,19 +80,26 @@ function redirectToLoginWithError(res) {
 // GOOGLE OAUTH CONFIGURATION
 // =========================
 
+
+const googleCallbackURL =
+  process.env.GOOGLE_CALLBACK_URL ||
+  (process.env.RENDER_EXTERNAL_URL
+    ? `${process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, "")}/api/auth/google/callback`
+    : "http://localhost:5001/api/auth/google/callback");
+
 const googleOAuthConfigured = Boolean(
   process.env.GOOGLE_CLIENT_ID &&
-    process.env.GOOGLE_CLIENT_SECRET &&
-    process.env.GOOGLE_CALLBACK_URL
+  process.env.GOOGLE_CLIENT_SECRET
 );
+
 
 if (googleOAuthConfigured) {
   passport.use(
     new GoogleStrategy(
       {
         clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: process.env.GOOGLE_CALLBACK_URL,
+clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+callbackURL: googleCallbackURL,
       },
 
       async (accessToken, refreshToken, profile, done) => {
