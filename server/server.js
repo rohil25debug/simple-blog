@@ -34,12 +34,19 @@ app.use(
   })
 );
 
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://simple-blog-e3qf.onrender.com",
+];
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
-    credentials: true
+    origin: allowedOrigins,
+    credentials: true,
   })
 );
+
 
 // =========================
 // REQUEST BODY PARSING

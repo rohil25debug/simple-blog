@@ -1,4 +1,4 @@
-const API_URL = "https://simple-blog-rp.onrender.com";
+const API_URL = "https://simple-blog-rp.onrender.com/api";
 
 export async function api(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
