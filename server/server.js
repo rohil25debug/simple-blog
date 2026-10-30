@@ -21,6 +21,9 @@ import postRoutes from "./routes/posts.js";
 const app = express();
 const PgSession = connectPgSimple(session);
 
+// Trust Render's reverse proxy so Express can recognize HTTPS.
+app.set("trust proxy", 1);
+
 app.disable("x-powered-by"); // http response by express [(x-powered-by) control the header].
 
 // =========================
@@ -85,11 +88,11 @@ app.use(
     saveUninitialized: false,
 
     cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 1000 * 60 * 60 * 24
-    }
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  maxAge: 1000 * 60 * 60 * 24,
+}
   })
 );
 
