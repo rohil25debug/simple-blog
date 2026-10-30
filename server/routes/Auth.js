@@ -20,19 +20,34 @@ const cookieName = "blog.sid";
 // EMAIL CONFIGURATION
 // =========================
 
-const emailConfigured = Boolean(
-  process.env.EMAIL_USER && process.env.EMAIL_PASS
-);
+
+// =========================
+// EMAIL CONFIGURATION
+// =========================
+
+const emailUser = process.env.EMAIL_USER?.trim();
+
+const emailPass = process.env.EMAIL_PASS?.replace(/\s+/g, "");
+
+const emailConfigured = Boolean(emailUser && emailPass);
+
+// Safe diagnostics: never print the actual password.
+console.log("EMAIL CONFIGURATION STATUS:", {
+  emailUserExists: Boolean(emailUser),
+  emailPassExists: Boolean(emailPass),
+  emailConfigured,
+});
 
 const transporter = emailConfigured
   ? nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: emailUser,
+        pass: emailPass,
       },
     })
   : null;
+
 
 // =========================
 // HELPERS
@@ -500,13 +515,16 @@ router.post("/forgot-password", async (req, res) => {
       });
     }
 
-    if (!emailConfigured) {
-      console.error("Email configuration is incomplete.");
+    if (!emailConfigured || !transporter) {
+  console.error("Forgot password: email credentials are missing.", {
+    emailUserExists: Boolean(emailUser),
+    emailPassExists: Boolean(emailPass),
+  });
 
-      return res.status(503).json({
-        message: "The password-reset email service is not configured.",
-      });
-    }
+  return res.status(503).json({
+    message: "Password reset email service is temporarily unavailable.",
+  });
+}
 
     const result = await pool.query(
       `SELECT id, email
