@@ -12,32 +12,43 @@ const router = express.Router();
 // IMAGE UPLOAD CONFIGURATION
 // =====================================
 
-const uploadDir = path.resolve("public/uploads");
+// Local development uses public/uploads.
+// Render can use a Persistent Disk through UPLOAD_DIR.
+const uploadDir = path.resolve(
+  process.env.UPLOAD_DIR ||
+    path.join(process.cwd(), "public", "uploads")
+);
+
+// Create the directory if it does not exist.
 fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, callback) => {
     callback(null, uploadDir);
   },
+
   filename: (_req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();
+
     callback(null, `${randomUUID()}${extension}`);
   },
 });
 
 const upload = multer({
   storage,
+
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 5 * 1024 * 1024, // 5 MB
   },
+
   fileFilter: (_req, file, callback) => {
     const allowedExtensions = [".jpg", ".jpeg", ".png", ".webp"];
+
     const extension = path.extname(file.originalname).toLowerCase();
 
     if (
       !allowedExtensions.includes(extension) ||
-      !file.mimetype.startsWith("image/") ||
-      file.mimetype === "image/svg+xml"
+      !["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)
     ) {
       return callback(
         new Error("Only JPG, JPEG, PNG, and WEBP images are allowed.")
@@ -52,8 +63,23 @@ function imagePath(file) {
   return file ? `/uploads/${file.filename}` : null;
 }
 
-function validPostId(value) {
-  return /^\d+$/.test(String(value)) && Number(value) > 0;
+// Safely remove an image stored in our upload directory.
+async function removeUploadedImage(image) {
+  if (!image || typeof image !== "string") return;
+
+  // Only allow paths belonging to our uploads folder.
+  if (!image.startsWith("/uploads/")) return;
+
+  const filename = path.basename(image);
+  const filePath = path.join(uploadDir, filename);
+
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.error("Could not remove uploaded image:", error);
+    }
+  }
 }
 
 // =====================================

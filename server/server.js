@@ -61,9 +61,17 @@ app.use(express.json({ limit: "100kb" }));
 // =========================
 // STATIC IMAGE UPLOADS
 // =========================
+const uploadDir = path.resolve(
+  process.env.UPLOAD_DIR ||
+    path.join(process.cwd(), "public", "uploads")
+);
+
 app.use(
   "/uploads",
-  express.static(path.join(process.cwd(), "public", "uploads"))
+  express.static(uploadDir, {
+    index: false,
+    dotfiles: "deny",
+  })
 );
 
 // =========================
