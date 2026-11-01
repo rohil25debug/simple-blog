@@ -1,38 +1,30 @@
+
 import express from "express";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
-import { randomUUID } from "crypto";
 import pool from "../db/db.js";
+import cloudinary from "../config/cloudinary.js";
 import { requireLogin, requireAdmin } from "../middleware/auth.js";
 
 const router = express.Router();
 
+function validPostId(value) {
+  return (
+    /^\d+$/.test(String(value)) &&
+    Number.isSafeInteger(Number(value)) &&
+    Number(value) > 0
+  );
+}
+
 // =====================================
-// IMAGE UPLOAD CONFIGURATION
+// CLOUDINARY IMAGE UPLOAD CONFIGURATION
 // =====================================
 
-// Local development uses public/uploads.
-// Render can use a Persistent Disk through UPLOAD_DIR.
-const uploadDir = path.resolve(
-  process.env.UPLOAD_DIR ||
-    path.join(process.cwd(), "public", "uploads")
-);
+// Store uploaded files temporarily in memory.
+// Images will be uploaded to Cloudinary instead
+// of Render's temporary local filesystem.
 
-// Create the directory if it does not exist.
-fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, callback) => {
-    callback(null, uploadDir);
-  },
-
-  filename: (_req, file, callback) => {
-    const extension = path.extname(file.originalname).toLowerCase();
-
-    callback(null, `${randomUUID()}${extension}`);
-  },
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -46,9 +38,15 @@ const upload = multer({
 
     const extension = path.extname(file.originalname).toLowerCase();
 
+    const allowedMimeTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
     if (
       !allowedExtensions.includes(extension) ||
-      !["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)
+      !allowedMimeTypes.includes(file.mimetype)
     ) {
       return callback(
         new Error("Only JPG, JPEG, PNG, and WEBP images are allowed.")
@@ -59,27 +57,37 @@ const upload = multer({
   },
 });
 
-function imagePath(file) {
-  return file ? `/uploads/${file.filename}` : null;
-}
+// =====================================
+// UPLOAD IMAGE TO CLOUDINARY
+// =====================================
 
-// Safely remove an image stored in our upload directory.
-async function removeUploadedImage(image) {
-  if (!image || typeof image !== "string") return;
-
-  // Only allow paths belonging to our uploads folder.
-  if (!image.startsWith("/uploads/")) return;
-
-  const filename = path.basename(image);
-  const filePath = path.join(uploadDir, filename);
-
-  try {
-    await fs.promises.unlink(filePath);
-  } catch (error) {
-    if (error.code !== "ENOENT") {
-      console.error("Could not remove uploaded image:", error);
-    }
+function uploadToCloudinary(file) {
+  if (!file) {
+    return Promise.resolve(null);
   }
+
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "social-blog",
+        resource_type: "image",
+      },
+      (error, result) => {
+        if (error) {
+          return reject(error);
+        }
+
+        if (!result?.secure_url) {
+          return reject(new Error("Cloudinary did not return an image URL."));
+        }
+
+        resolve(result.secure_url);
+      }
+    );
+
+    stream.on("error", reject);
+    stream.end(file.buffer);
+  });
 }
 
 // =====================================
@@ -353,6 +361,9 @@ router.post(
         });
       }
 
+      // Upload the image to Cloudinary first.
+      const imageUrl = await uploadToCloudinary(req.file);
+
       const result = await pool.query(
         `INSERT INTO posts
            (title, content, image, user_id, category)
@@ -362,7 +373,7 @@ router.post(
         [
           title,
           content,
-          imagePath(req.file),
+          imageUrl,
           req.session.user.id,
           category,
         ]
@@ -795,6 +806,10 @@ router.put(
         });
       }
 
+      // If no new image is selected, this returns null
+      // and the existing image will be preserved.
+      const imageUrl = await uploadToCloudinary(req.file);
+
       const result = await pool.query(
         `UPDATE posts
          SET title = $1,
@@ -813,7 +828,7 @@ router.put(
         [
           title,
           content,
-          imagePath(req.file),
+          imageUrl,
           category,
           id,
           isAdmin,
