@@ -4,7 +4,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import pool from "../db/db.js";
 import crypto from "node:crypto";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 
@@ -20,33 +20,20 @@ const cookieName = "blog.sid";
 // EMAIL CONFIGURATION
 // =========================
 
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
-// =========================
-// EMAIL CONFIGURATION
-// =========================
+const emailFrom =
+  process.env.RESEND_FROM_EMAIL ||
+  "Social Blog <onboarding@resend.dev>";
 
-const emailUser = process.env.EMAIL_USER?.trim();
+const emailConfigured = Boolean(resend);
 
-const emailPass = process.env.EMAIL_PASS?.replace(/\s+/g, "");
-
-const emailConfigured = Boolean(emailUser && emailPass);
-
-// Safe diagnostics: never print the actual password.
-console.log("EMAIL CONFIGURATION STATUS:", {
-  emailUserExists: Boolean(emailUser),
-  emailPassExists: Boolean(emailPass),
+console.log("RESEND CONFIGURATION STATUS:", {
+  apiKeyExists: Boolean(process.env.RESEND_API_KEY),
   emailConfigured,
 });
-
-const transporter = emailConfigured
-  ? nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: emailUser,
-        pass: emailPass,
-      },
-    })
-  : null;
 
 
 // =========================
@@ -515,11 +502,8 @@ router.post("/forgot-password", async (req, res) => {
       });
     }
 
-    if (!emailConfigured || !transporter) {
-  console.error("Forgot password: email credentials are missing.", {
-    emailUserExists: Boolean(emailUser),
-    emailPassExists: Boolean(emailPass),
-  });
+    if (!emailConfigured || !resend) {
+  console.error("Forgot password: Resend API key is missing.");
 
   return res.status(503).json({
     message: "Password reset email service is temporarily unavailable.",
@@ -565,29 +549,36 @@ router.post("/forgot-password", async (req, res) => {
     resetUrl.searchParams.set("token", token);
 
     try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: user.email,
-        subject: "Reset Your Rohil's Blog Password",
-        text: `You requested a password reset.
+  const { data, error } = await resend.emails.send({
+    from: emailFrom,
+    to: user.email,
+    subject: "Reset Your Social Blog Password",
+    text: `You requested a password reset.
 
 Open this link to create a new password:
+
 ${resetUrl.toString()}
 
 This link expires in 15 minutes. If you did not request this, you can ignore this email.`,
-      });
-    } catch (emailError) {
-      await pool.query(
-        `UPDATE users
-         SET reset_token = NULL,
-             reset_token_expire = NULL
-         WHERE id = $1
-           AND reset_token = $2`,
-        [user.id, tokenHash]
-      );
+  });
 
-      throw emailError;
-    }
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  console.log("Password reset email sent:", data?.id);
+} catch (emailError) {
+  await pool.query(
+    `UPDATE users
+     SET reset_token = NULL,
+         reset_token_expire = NULL
+     WHERE id = $1
+       AND reset_token = $2`,
+    [user.id, tokenHash]
+  );
+
+  throw emailError;
+}
 
     return res.status(200).json({
       message: genericMessage,
