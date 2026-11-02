@@ -4,7 +4,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import pool from "../db/db.js";
 import crypto from "node:crypto";
-import { Resend } from "resend";
+// import { Resend } from "resend";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 
@@ -20,21 +20,28 @@ const cookieName = "blog.sid";
 // EMAIL CONFIGURATION
 // =========================
 
-const resend = process.env.RESEND_API_KEY
-  ? new Resend(process.env.RESEND_API_KEY)
-  : null;
+// =========================
+// EMAIL CONFIGURATION
+// =========================
+
+const brevoApiKey = process.env.BREVO_API_KEY;
 
 const emailFrom =
-  process.env.RESEND_FROM_EMAIL ||
-  "Social Blog <onboarding@resend.dev>";
+  process.env.BREVO_FROM_EMAIL ||
+  "rohilpanchal4441@gmail.com";
 
-const emailConfigured = Boolean(resend);
+const emailFromName =
+  process.env.BREVO_FROM_NAME ||
+  "S. SOCIAL BLOG";
 
-console.log("RESEND CONFIGURATION STATUS:", {
-  apiKeyExists: Boolean(process.env.RESEND_API_KEY),
+const emailConfigured = Boolean(
+  brevoApiKey && emailFrom
+);
+
+console.log("BREVO CONFIGURATION STATUS:", {
+  apiKeyExists: Boolean(brevoApiKey),
   emailConfigured,
 });
-
 
 // =========================
 // HELPERS
@@ -502,8 +509,8 @@ router.post("/forgot-password", async (req, res) => {
       });
     }
 
-    if (!emailConfigured || !resend) {
-  console.error("Forgot password: Resend API key is missing.");
+   if (!emailConfigured) {
+  console.error("Forgot password: Brevo configuration is missing.");
 
   return res.status(503).json({
     message: "Password reset email service is temporarily unavailable.",
@@ -548,25 +555,49 @@ router.post("/forgot-password", async (req, res) => {
 
     resetUrl.searchParams.set("token", token);
 
-    try {
-  const { data, error } = await resend.emails.send({
-    from: emailFrom,
-    to: user.email,
-    subject: "Reset Your Social Blog Password",
-    text: `You requested a password reset.
+    
+try {
+  const response = await fetch(
+    "https://api.brevo.com/v3/smtp/email",
+    {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "api-key": brevoApiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: {
+          name: emailFromName,
+          email: emailFrom,
+        },
+        to: [
+          {
+            email: user.email,
+          },
+        ],
+        subject: "Reset Your Social Blog Password",
+        textContent: `You requested a password reset.
 
 Open this link to create a new password:
 
 ${resetUrl.toString()}
 
 This link expires in 15 minutes. If you did not request this, you can ignore this email.`,
-  });
+      }),
+    }
+  );
 
-  if (error) {
-    throw new Error(error.message);
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.message || "Brevo failed to send the email."
+    );
   }
 
-  console.log("Password reset email sent:", data?.id);
+  console.log("Password reset email sent:", result.messageId);
+
 } catch (emailError) {
   await pool.query(
     `UPDATE users
